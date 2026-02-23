@@ -1,0 +1,31 @@
+# Core dependencies
+streamlit==1.54.0
+psycopg2-binary==2.9.9
+pandas==2.1.0
+numpy==1.24.3
+
+# Data visualization
+plotly==5.17.0
+matplotlib==3.7.2
+seaborn==0.12.2
+
+# PDF generation
+fpdf==1.7.2
+reportlab==4.0.4
+
+# Excel export
+openpyxl==3.1.2
+xlsxwriter==3.1.2
+
+# Utils
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Security (optional)
+bcrypt==4.0.1
+python-jose==3.3.0
+
+# Testing (optional)
+pytest==7.4.0
+pytest-cov==4.1.0
