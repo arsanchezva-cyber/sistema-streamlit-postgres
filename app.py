@@ -56,27 +56,8 @@ else:
     st.sidebar.title(f"👤 Bienvenido, {st.session_state.username}")
     st.sidebar.markdown("---")
     
-    PAGE_MAPPING = {
-        "Dashboard": "pages/01_Dashboard.py",
-        "Reservas": "pages/02_Reservas.py",
-        "CheckIn": "pages/03_CheckIn.py",
-        "CheckOut": "pages/04_CheckOut_Facturacion.py",
-        "Estadisticas": "pages/05_Estadisticas.py",
-        "Reportes": "pages/06_Reportes.py",
-    }
-    menu_options = {
-        "🏠 Dashboard": "Dashboard",
-        "📅 Reservas": "Reservas",
-        "✅ Check-In": "CheckIn",
-        "❌ Check-Out": "CheckOut",
-        "📊 Estadísticas": "Estadisticas",
-        "📄 Reportes": "Reportes"
-    }
     
-    for menu_item, page in menu_options.items():
-        if st.sidebar.button(menu_item, use_container_width=True):
-            st.session_state.current_page = page
-            st.switch_page(PAGE_MAPPING[page])
+    
     
     st.sidebar.markdown("---")
     
@@ -97,5 +78,4 @@ else:
     st.title(f"🏨 {st.session_state.current_page}")
     st.markdown("---")
     
-    if st.session_state.current_page in PAGE_MAPPING:
-        st.switch_page(PAGE_MAPPING[st.session_state.current_page])
+  
