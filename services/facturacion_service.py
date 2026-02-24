@@ -106,7 +106,8 @@ class FacturacionService:
     def generar_factura(data: Dict) -> Optional[str]:
         """
         Genera una factura para una estancia.
-        data debe contener: estancia_id, huesped_id, subtotal, impuestos, total, metodo_pago
+        data debe contener: estancia_id, huesped_id, subtotal, impuestos, total, 
+        metodo_pago, noches, precio_noche, total_alojamiento, consumos
         """
         
         # Verificar que no exista factura previa
@@ -122,9 +123,15 @@ class FacturacionService:
         # Preparar transacción
         queries = []
         
-        # Insertar factura
+        # 1. Insertar factura
         queries.append((
-            CREATE_FACTURA,
+            """
+            INSERT INTO facturas (
+                numero_factura, estancia_id, huesped_id, 
+                subtotal, impuestos, total, metodo_pago, estado_pago
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pagado')
+            RETURNING id
+            """,
             (
                 numero_factura,
                 data['estancia_id'],
@@ -136,36 +143,45 @@ class FacturacionService:
             )
         ))
         
-        # Insertar detalle de alojamiento
+        # 2. Insertar detalle de alojamiento (SIN consumo_id)
         queries.append((
-            CREATE_DETALLE_FACTURA,
+            """
+            INSERT INTO detalles_factura (
+                factura_id, descripcion, cantidad, 
+                precio_unitario, importe_total, tipo_detalle
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """,
             (
-                None,  # Se reemplazará con LASTVAL()
+                None,  # Será reemplazado por el ID de la factura
                 f"Alojamiento ({data['noches']} noches)",
                 data['noches'],
                 data['precio_noche'],
                 data['total_alojamiento'],
-                'alojamiento',
-                None
+                'alojamiento'
             )
         ))
         
-        # Insertar detalles de consumos
+        # 3. Insertar detalles de consumos (SIN consumo_id)
         for consumo in data.get('consumos', []):
+            importe_total = consumo['cantidad'] * consumo['precio_unitario']
             queries.append((
-                CREATE_DETALLE_FACTURA,
+                """
+                INSERT INTO detalles_factura (
+                    factura_id, descripcion, cantidad, 
+                    precio_unitario, importe_total, tipo_detalle
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
                 (
-                    None,  # Se reemplazará con LASTVAL()
+                    None,  # Será reemplazado por el ID de la factura
                     consumo['descripcion'],
                     consumo['cantidad'],
                     consumo['precio_unitario'],
-                    consumo['cantidad'] * consumo['precio_unitario'],
-                    'consumo',
-                    consumo['id']
+                    importe_total,
+                    'consumo'
                 )
             ))
         
-        # Actualizar estado de la estancia
+        # 4. Actualizar estado de la estancia
         queries.append((
             """
             UPDATE estancias 
@@ -175,17 +191,17 @@ class FacturacionService:
             (data['estancia_id'],)
         ))
         
-        # Ejecutar transacción usando execute_transaction (NO execute_transaction_with_factura_id)
+        # Ejecutar transacción
         success, results = execute_transaction(queries)
         
-        if success:
-            # Obtener ID de la factura creada
-            result = run_query(
-                "SELECT id FROM facturas WHERE numero_factura = %s",
-                (numero_factura,)
-            )
-            return result[0]['id'] if result else None
+        if success and results and len(results) > 0:
+            # El resultado de la factura está en results[0]
+            if results[0] and len(results[0]) > 0:
+                factura_id = results[0][0]['id']
+                st.success(f"✅ Factura generada con ID: {factura_id}")
+                return factura_id
         
+        st.error("Error al generar la factura")
         return None
     
     @staticmethod
@@ -206,3 +222,36 @@ class FacturacionService:
         
         result = run_query(query, (factura_id,))
         return result and len(result) > 0
+
+
+# =============================================
+# FUNCIONES WRAPPER PARA COMPATIBILIDAD
+# =============================================
+
+def generar_factura(data: Dict) -> Optional[str]:
+    """Wrapper para compatibilidad con importaciones antiguas."""
+    return FacturacionService.generar_factura(data)
+
+def get_consumos_estancia(estancia_id: str) -> List[Dict]:
+    """Wrapper para compatibilidad con importaciones antiguas."""
+    return FacturacionService.get_consumos_estancia(estancia_id)
+
+def agregar_consumo(estancia_id: str, descripcion: str, cantidad: int, precio_unitario: float) -> Optional[str]:
+    """Wrapper para compatibilidad."""
+    return FacturacionService.agregar_consumo(estancia_id, descripcion, cantidad, precio_unitario)
+
+def calcular_totales_estancia(estancia_id: str) -> Dict:
+    """Wrapper para compatibilidad."""
+    return FacturacionService.calcular_totales_estancia(estancia_id)
+
+def eliminar_consumo(consumo_id: str) -> bool:
+    """Wrapper para compatibilidad."""
+    return FacturacionService.eliminar_consumo(consumo_id)
+
+def obtener_factura(estancia_id: str) -> Optional[Dict]:
+    """Wrapper para compatibilidad."""
+    return FacturacionService.obtener_factura(estancia_id)
+
+def anular_factura(factura_id: str) -> bool:
+    """Wrapper para compatibilidad."""
+    return FacturacionService.anular_factura(factura_id)

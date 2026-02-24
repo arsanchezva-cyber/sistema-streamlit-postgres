@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
-from core.database import run_query
+from core.database import run_query, execute_transaction
 from utils.helpers import formatear_fecha
 
 st.set_page_config(page_title="Check-In", page_icon="✅", layout="wide")
@@ -16,6 +16,10 @@ if 'checkin_data' not in st.session_state:
     st.session_state.checkin_data = {}
 if 'selected_reserva' not in st.session_state:
     st.session_state.selected_reserva = None
+if 'show_walkin_selection' not in st.session_state:
+    st.session_state.show_walkin_selection = False
+if 'walkin_data' not in st.session_state:
+    st.session_state.walkin_data = {}
 
 # Función para buscar reserva
 def buscar_reserva(codigo=None, documento=None):
@@ -78,32 +82,59 @@ def get_habitaciones_disponibles(tipo_habitacion_id, fecha_checkin, fecha_checko
     """
     return pd.DataFrame(run_query(query, (tipo_habitacion_id, fecha_checkout, fecha_checkin)))
 
-# Función para realizar check-in
+# Función para realizar check-in (CORREGIDA - USA TRANSACCIÓN)
 def realizar_checkin(data):
-    # Crear estancia
-    estancia_query = """
-    INSERT INTO estancias (
-        reserva_id, huesped_id, habitacion_id,
-        fecha_checkin_real, fecha_checkin_esperada, fecha_checkout_esperada,
-        numero_adultos, numero_ninos, precio_acordado_por_noche,
-        estado_estancia, observaciones
-    ) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, 'activa', %s)
-    RETURNING id
+    # Verificar que la habitación sigue disponible
+    check_disponibilidad = """
+    SELECT COUNT(*) as ocupada
+    FROM estancias
+    WHERE habitacion_id = %s
+    AND estado_estancia = 'activa'
+    AND fecha_checkin_esperada < %s
+    AND fecha_checkout_esperada > %s
     """
     
-    result = run_query(estancia_query, (
-        data.get('reserva_id'),
-        data['huesped_id'],
-        data['habitacion_id'],
-        data['fecha_checkin'],
-        data['fecha_checkout'],
-        data['adultos'],
-        data['ninos'],
-        data['precio_noche'],
-        data.get('observaciones', '')
+    result = run_query(check_disponibilidad, (data['habitacion_id'], data['fecha_checkout'], data['fecha_checkin']))
+    
+    if result and result[0]['ocupada'] > 0:
+        st.error("La habitación ya no está disponible")
+        return None
+    
+    # Preparar transacción
+    queries = []
+    
+    # Insertar estancia
+    queries.append((
+        """
+        INSERT INTO estancias (
+            reserva_id, huesped_id, habitacion_id,
+            fecha_checkin_real, fecha_checkin_esperada, fecha_checkout_esperada,
+            numero_adultos, numero_ninos, precio_acordado_por_noche,
+            estado_estancia, observaciones
+        ) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, 'activa', %s)
+        RETURNING id
+        """,
+        (
+            data.get('reserva_id'),
+            data['huesped_id'],
+            data['habitacion_id'],
+            data['fecha_checkin'],
+            data['fecha_checkout'],
+            data['adultos'],
+            data['ninos'],
+            data['precio_noche'],
+            data.get('observaciones', '')
+        )
     ))
     
-    return result[0]['id'] if result else None
+    # Ejecutar transacción
+    success, results = execute_transaction(queries)
+    
+    if success and results and len(results) > 0 and results[0] and len(results[0]) > 0:
+        estancia_id = results[0][0]['id']
+        return estancia_id
+    
+    return None
 
 # Pestañas para diferentes tipos de check-in
 tab1, tab2 = st.tabs(["📋 Desde Reserva", "🚶 Walk-In (Sin Reserva)"])
@@ -303,13 +334,14 @@ with tab2:
                 st.error("Complete los campos obligatorios (*)")
             else:
                 # Buscar habitaciones disponibles
+                from services.check_in_service import CheckInService
                 habitaciones_disp = CheckInService.obtener_habitaciones_disponibles(
                     tipo_habitacion,
                     fecha_checkin,
                     fecha_checkout
                 )
                 
-                if not habitaciones_disp.empty:
+                if habitaciones_disp and len(habitaciones_disp) > 0:
                     st.session_state.walkin_data = {
                         'nombre': nombre,
                         'tipo_documento': tipo_documento,
@@ -324,7 +356,7 @@ with tab2:
                         'tipo_habitacion_id': tipo_habitacion,
                         'observaciones': observaciones,
                         'precio_noche': df_tipos[df_tipos['id']==tipo_habitacion]['precio_base_por_noche'].values[0],
-                        'habitaciones_disponibles': habitaciones_disp.to_dict('records')
+                        'habitaciones_disponibles': habitaciones_disp
                     }
                     st.session_state.show_walkin_selection = True
                     st.rerun()
@@ -370,11 +402,10 @@ with tab2:
                                 'observaciones': data.get('observaciones', '')
                             }
                             
-                            # Usar la nueva función específica para walk-in
+                            # Usar la función específica para walk-in
+                            from services.check_in_service import CheckInService
                             estancia_id = CheckInService.realizar_checkin_walkin(walkin_data)
                             
-                        else:
-                            huesped_id = huesped_existente[0]['id']
                             if estancia_id:
                                 st.success("✅ ¡Check-In realizado exitosamente!")
                                 st.balloons()

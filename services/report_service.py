@@ -2,7 +2,7 @@ import streamlit as st
 from fpdf import FPDF
 from datetime import datetime
 import pandas as pd
-import tempfile
+import io
 from typing import Dict, List, Optional
 from core.database import run_query
 from utils.helpers import formatear_moneda, formatear_fecha
@@ -184,11 +184,11 @@ class ReportService:
         pdf.set_font('Arial', '', 10)
         pdf.cell(0, 6, f"Método de Pago: {f['metodo_pago'] or 'No especificado'}", 0, 1)
         
-        # Guardar y retornar
-        with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp:
-            pdf.output(tmp.name)
-            with open(tmp.name, 'rb') as f:
-                return f.read()
+        # Usar BytesIO en lugar de archivo temporal
+        pdf_bytes = io.BytesIO()
+        pdf.output(pdf_bytes)
+        pdf_bytes.seek(0)
+        return pdf_bytes.getvalue()
     
     @staticmethod
     def generar_reporte_ocupacion(
@@ -232,7 +232,7 @@ class ReportService:
                 headers = ['Fecha', 'Habitación', 'Tipo', 'Estado', 'Personas']
                 table_data = []
                 
-                for row in datos[:50]:  # Limitar a 50 filas para no saturar el PDF
+                for row in datos[:50]:
                     table_data.append([
                         formatear_fecha(row.get('fecha', '')),
                         row.get('numero_habitacion', ''),
@@ -246,11 +246,11 @@ class ReportService:
                 if len(datos) > 50:
                     pdf.cell(0, 6, f"... y {len(datos) - 50} registros más", 0, 1)
         
-        # Guardar y retornar
-        with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp:
-            pdf.output(tmp.name)
-            with open(tmp.name, 'rb') as f:
-                return f.read()
+        # Usar BytesIO
+        pdf_bytes = io.BytesIO()
+        pdf.output(pdf_bytes)
+        pdf_bytes.seek(0)
+        return pdf_bytes.getvalue()
     
     @staticmethod
     def generar_reporte_ingresos(
@@ -303,11 +303,11 @@ class ReportService:
                 
                 pdf.add_table(headers, table_data, widths=[30, 40, 50, 30, 30])
         
-        # Guardar y retornar
-        with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp:
-            pdf.output(tmp.name)
-            with open(tmp.name, 'rb') as f:
-                return f.read()
+        # Usar BytesIO
+        pdf_bytes = io.BytesIO()
+        pdf.output(pdf_bytes)
+        pdf_bytes.seek(0)
+        return pdf_bytes.getvalue()
     
     @staticmethod
     def generar_reporte_estadistico(
@@ -366,16 +366,32 @@ class ReportService:
             
             pdf.add_table(headers, table_data, widths=[50, 40, 40, 50])
         
-        # Guardar y retornar
-        with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp:
-            pdf.output(tmp.name)
-            with open(tmp.name, 'rb') as f:
-                return f.read()
+        # Usar BytesIO
+        pdf_bytes = io.BytesIO()
+        pdf.output(pdf_bytes)
+        pdf_bytes.seek(0)
+        return pdf_bytes.getvalue()
 
-# Mantener funciones auxiliares para compatibilidad
+
+# =============================================
+# FUNCIONES WRAPPER PARA COMPATIBILIDAD
+# =============================================
+
 def generar_factura_pdf(estancia_id: str) -> Optional[bytes]:
     """Wrapper para compatibilidad."""
     return ReportService.generar_factura_pdf(estancia_id)
+
+def generar_reporte_ocupacion(fecha_inicio, fecha_fin, datos, incluir_detalle=True):
+    """Wrapper para compatibilidad con importaciones."""
+    return ReportService.generar_reporte_ocupacion(fecha_inicio, fecha_fin, datos, incluir_detalle)
+
+def generar_reporte_ingresos(fecha_inicio, fecha_fin, datos, incluir_detalle=True):
+    """Wrapper para compatibilidad con importaciones."""
+    return ReportService.generar_reporte_ingresos(fecha_inicio, fecha_fin, datos, incluir_detalle)
+
+def generar_reporte_estadistico(stats, tipos_df, fecha_inicio, fecha_fin):
+    """Wrapper para compatibilidad con importaciones."""
+    return ReportService.generar_reporte_estadistico(stats, tipos_df, fecha_inicio, fecha_fin)
 
 def get_consumos_estancia(estancia_id: str) -> List[Dict]:
     """Obtiene consumos de una estancia."""

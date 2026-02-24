@@ -20,13 +20,11 @@ def init_connection_pool():
             "password": st.secrets.get("postgres", {}).get("password", os.getenv("DB_PASSWORD", ""))
         }
         
-        st.write("🔌 Conectando a PostgreSQL...")
         connection_pool = pool.SimpleConnectionPool(
             1, 10,
             **POSTGRES_CONFIG,
             cursor_factory=RealDictCursor
         )
-        st.success("✅ Pool de conexiones creado")
         return connection_pool
     except Exception as e:
         st.error(f"❌ Error al conectar a la base de datos: {e}")
@@ -85,7 +83,6 @@ def execute_transaction(queries):
     results = []
     
     try:
-        st.write("🔄 INICIANDO TRANSACCIÓN")
         conn = get_connection()
         if not conn:
             st.error("❌ No se pudo obtener conexión")
@@ -95,25 +92,18 @@ def execute_transaction(queries):
             last_inserted_id = None
             
             for i, (query, params) in enumerate(queries):
-                st.write(f"--- Consulta {i} ---")
-                st.write(f"Query: {query[:100]}...")
-                st.write(f"Params originales: {params}")
                 
-                # Si es la segunda consulta y tenemos un ID, reemplazar el None
-                if i == 1 and last_inserted_id is not None:
+                # Si tenemos un ID de inserción anterior, reemplazar TODOS los Nones
+                if last_inserted_id is not None:
                     # Convertir a lista para modificar
                     if isinstance(params, tuple):
                         params = list(params)
                     
-                    # Buscar el primer None y reemplazarlo
+                    # Reemplazar TODOS los Nones con el último ID insertado
                     for j, param in enumerate(params):
                         if param is None:
                             params[j] = last_inserted_id
-                            st.write(f"🔧 Reemplazando None en posición {j} con ID: {last_inserted_id}")
-                            break
                     
-                    st.write(f"Params modificados: {params}")
-                
                 # Ejecutar
                 cur.execute(query, params)
                 
@@ -121,32 +111,25 @@ def execute_transaction(queries):
                 if cur.description:
                     result = cur.fetchall()
                     results.append(result)
-                    st.write(f"Resultado consulta {i}: {result}")
                     
-                    # Guardar el ID si es la primera consulta
-                    if i == 0 and result and len(result) > 0:
-                        if 'id' in result[0]:
-                            last_inserted_id = result[0]['id']
-                            st.write(f"💾 ID guardado de consulta {i}: {last_inserted_id}")
-                        else:
-                            st.write(f"⚠️ No se encontró campo 'id' en el resultado")
+                    # Guardar el ID si es una consulta con RETURNING id
+                    if result and len(result) > 0 and 'id' in result[0]:
+                        last_inserted_id = result[0]['id']
                 else:
                     # Para INSERT sin RETURNING
                     results.append([{"rowcount": cur.rowcount}])
-                    st.write(f"Filas afectadas consulta {i}: {cur.rowcount}")
             
             conn.commit()
-            st.success("✅ TRANSACCIÓN COMPLETADA")
             return True, results
             
     except Exception as e:
         if conn:
             conn.rollback()
         st.error(f"❌ Error en transacción: {e}")
+        import traceback
         st.error(traceback.format_exc())
         return False, []
         
     finally:
         if conn:
             return_connection(conn)
-        st.write("🔚 FIN TRANSACCIÓN")

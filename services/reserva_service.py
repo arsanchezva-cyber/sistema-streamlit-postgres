@@ -16,9 +16,9 @@ class ReservaService:
         MÁXIMO 20 CARACTERES para cumplir con VARCHAR(20) de la BD.
         Formato: RES-YYMMDD-XXXXXX (ej: RES-230223-A1B2C3) = 17 caracteres
         """
-        fecha = date.today().strftime('%y%m%d')  # 6 caracteres: 230223
-        unique_id = str(uuid.uuid4())[:6].upper()  # 6 caracteres: A1B2C3
-        return f"RES-{fecha}-{unique_id}"  # Total: 17 caracteres
+        fecha = date.today().strftime('%y%m%d')
+        unique_id = str(uuid.uuid4())[:6].upper()
+        return f"RES-{fecha}-{unique_id}"
     
     @staticmethod
     def verificar_disponibilidad(
@@ -28,19 +28,18 @@ class ReservaService:
         num_habitaciones: int = 1
     ) -> bool:
         """Verifica si hay disponibilidad para una reserva."""
-        
-        # Verificar conflictos con reservas existentes
-        result = run_query(
-            VERIFICAR_DISPONIBILIDAD_RESERVA,
-            (tipo_habitacion_id, fecha_checkout, fecha_checkin)
-        )
-        
-        if result and result[0]['conflictos'] > 0:
-            return False
-        
-        # Verificar conflictos con estancias activas
-        query_estancias = """
+        query_reservas = """
         SELECT COUNT(*) as conflictos
+        FROM reservas
+        WHERE tipo_habitacion_solicitada_id = %s
+        AND estado_reserva = 'confirmada'
+        AND fecha_checkin < %s
+        AND fecha_checkout > %s
+        """
+        result_reservas = run_query(query_reservas, (tipo_habitacion_id, fecha_checkout, fecha_checkin))
+        reservas_conflictos = result_reservas[0]['conflictos'] if result_reservas else 0
+        query_estancias = """
+        SELECT COUNT(DISTINCT e.habitacion_id) as conflictos
         FROM estancias e
         JOIN habitaciones h ON e.habitacion_id = h.id
         WHERE h.tipo_habitacion_id = %s
@@ -48,16 +47,19 @@ class ReservaService:
         AND e.fecha_checkin_esperada < %s
         AND e.fecha_checkout_esperada > %s
         """
-        
-        result = run_query(
-            query_estancias,
-            (tipo_habitacion_id, fecha_checkout, fecha_checkin)
-        )
-        
-        if result and result[0]['conflictos'] >= num_habitaciones:
-            return False
-        
-        return True
+        result_estancias = run_query(query_estancias, (tipo_habitacion_id, fecha_checkout, fecha_checkin))
+        estancias_conflictos = result_estancias[0]['conflictos'] if result_estancias else 0
+        query_total = """
+        SELECT COUNT(*) as total
+        FROM habitaciones
+        WHERE tipo_habitacion_id = %s AND activa = true
+        """
+        result_total = run_query(query_total, (tipo_habitacion_id,))
+        total_habitaciones = result_total[0]['total'] if result_total else 0
+        ocupadas = reservas_conflictos + estancias_conflictos
+        disponibles = total_habitaciones - ocupadas
+        st.write(f"🔍 Total: {total_habitaciones}, Ocupadas: {ocupadas}, Disponibles: {disponibles}")
+        return disponibles >= num_habitaciones
     
     @staticmethod
     def ver_disponibilidad_completa(fecha_checkin: date, fecha_checkout: date):
@@ -182,7 +184,6 @@ class ReservaService:
         
         if not disponible:
             st.error("❌ No hay disponibilidad para las fechas seleccionadas")
-            # Agregar diagnóstico automático
             ReservaService.ver_disponibilidad_completa(
                 reserva.fecha_checkin,
                 reserva.fecha_checkout
@@ -212,7 +213,6 @@ class ReservaService:
             huesped_id = huesped_existente[0]['id']
             st.info(f"✅ Huésped existente encontrado con ID: {huesped_id}")
             
-            # Solo insertar la reserva
             queries.append((
                 """
                 INSERT INTO reservas (
@@ -230,7 +230,7 @@ class ReservaService:
                 """,
                 (
                     codigo,
-                    huesped_id,  # Usar el ID existente directamente
+                    huesped_id,
                     reserva.tipo_habitacion_solicitada_id,
                     reserva.fecha_checkin,
                     reserva.fecha_checkout,
@@ -244,7 +244,6 @@ class ReservaService:
             # El huésped NO existe - insertar huésped y reserva
             st.info("🆕 Nuevo huésped - se insertará en la base de datos")
             
-            # Insertar huésped
             queries.append((
                 """
                 INSERT INTO huespedes (
@@ -265,7 +264,6 @@ class ReservaService:
                 )
             ))
             
-            # Insertar reserva (con NULL como placeholder para huesped_id)
             queries.append((
                 """
                 INSERT INTO reservas (
@@ -283,7 +281,7 @@ class ReservaService:
                 """,
                 (
                     codigo,
-                    None,  # Este None será reemplazado por el ID del huésped
+                    None,
                     reserva.tipo_habitacion_solicitada_id,
                     reserva.fecha_checkin,
                     reserva.fecha_checkout,
@@ -300,7 +298,6 @@ class ReservaService:
         
         if success:
             st.success("✅ Transacción completada")
-            # El resultado de la reserva está en el último elemento de results
             reserva_result = results[-1] if results else None
             if reserva_result and len(reserva_result) > 0:
                 reserva_id = reserva_result[0]['id']

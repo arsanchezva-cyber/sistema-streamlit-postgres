@@ -33,34 +33,65 @@ def get_tipos_habitacion():
     return pd.DataFrame(result) if result else pd.DataFrame()
 
 # Función para verificar disponibilidad
+# Función para verificar disponibilidad (VERSIÓN CORREGIDA)
 def verificar_disponibilidad(fecha_checkin, fecha_checkout, tipo_habitacion_id, num_habitaciones=1):
+    """
+    Verifica cuántas habitaciones de un tipo están disponibles para un período.
+    Retorna True si hay al menos num_habitaciones disponibles.
+    """
+    
+    # Consulta para obtener:
+    # - Total de habitaciones de este tipo
+    # - Habitaciones ocupadas por estancias activas
+    # - Reservas confirmadas (que ocupan una habitación virtual)
     query = """
-    WITH habitaciones_tipo AS (
-        SELECT h.id FROM habitaciones h
-        WHERE h.tipo_habitacion_id = %s AND h.activa = true AND h.estado_actual != 'mantenimiento'
+    WITH 
+    -- Total de habitaciones de este tipo
+    total_habitaciones AS (
+        SELECT COUNT(*) as total
+        FROM habitaciones
+        WHERE tipo_habitacion_id = %s AND activa = true
     ),
-    ocupadas_estancias AS (
-        SELECT e.habitacion_id FROM estancias e
-        WHERE e.estado_estancia = 'activa'
-        AND e.fecha_checkin_esperada < %s AND e.fecha_checkout_esperada > %s
+    -- Habitaciones ocupadas por estancias activas en el período
+    estancias_ocupadas AS (
+        SELECT COUNT(DISTINCT e.habitacion_id) as ocupadas
+        FROM estancias e
+        JOIN habitaciones h ON e.habitacion_id = h.id
+        WHERE h.tipo_habitacion_id = %s
+        AND e.estado_estancia = 'activa'
+        AND e.fecha_checkin_esperada < %s  -- Check-in antes de la salida
+        AND e.fecha_checkout_esperada > %s -- Check-out después de la entrada
     ),
-    reservas_solapadas AS (
-        SELECT COUNT(*)::int as num FROM reservas r
-        WHERE r.estado_reserva = 'confirmada' AND r.tipo_habitacion_solicitada_id = %s
-        AND r.fecha_checkin < %s AND r.fecha_checkout > %s
+    -- Reservas confirmadas que ocupan este tipo de habitación en el período
+    reservas_ocupadas AS (
+        SELECT COUNT(*) as reservadas
+        FROM reservas
+        WHERE tipo_habitacion_solicitada_id = %s
+        AND estado_reserva = 'confirmada'
+        AND fecha_checkin < %s
+        AND fecha_checkout > %s
     )
     SELECT 
-        GREATEST(0,
-            (SELECT COUNT(*) FROM habitaciones_tipo)
-            - (SELECT COUNT(*) FROM habitaciones_tipo ht WHERE ht.id IN (SELECT habitacion_id FROM ocupadas_estancias))
-            - COALESCE((SELECT num FROM reservas_solapadas), 0)
-        ) as disponibles
+        (SELECT total FROM total_habitaciones) as total,
+        (SELECT ocupadas FROM estancias_ocupadas) as ocupadas,
+        (SELECT reservadas FROM reservas_ocupadas) as reservadas,
+        (SELECT total FROM total_habitaciones) 
+        - (SELECT ocupadas FROM estancias_ocupadas) 
+        - (SELECT reservadas FROM reservas_ocupadas) as disponibles
     """
+    
     result = run_query(query, (
-        tipo_habitacion_id, fecha_checkout, fecha_checkin,
-        tipo_habitacion_id, fecha_checkout, fecha_checkin
+        tipo_habitacion_id,  # para total
+        tipo_habitacion_id, fecha_checkout, fecha_checkin,  # para estancias
+        tipo_habitacion_id, fecha_checkout, fecha_checkin   # para reservas
     ))
-    return result[0]['disponibles'] >= num_habitaciones if result else False
+    
+    if result and len(result) > 0:
+        disponibles = result[0]['disponibles']
+        st.write(f"🔍 Debug: Total={result[0]['total']}, Ocupadas={result[0]['ocupadas']}, Reservadas={result[0]['reservadas']}, Disponibles={disponibles}")
+        return disponibles >= num_habitaciones
+    
+    return False
 
 # Función para crear una nueva reserva
 def crear_reserva(data):
@@ -372,37 +403,58 @@ with tab3:
         )
     
     if st.button("🔍 Buscar Disponibilidad"):
+        # Consulta corregida para mostrar disponibilidad real
         query = """
-        WITH por_tipo AS (
-            SELECT t.id, t.nombre, t.capacidad_maxima, t.precio_base_por_noche,
-                   COUNT(h.id) as total_habitaciones
+        WITH 
+        -- Totales por tipo
+        total_por_tipo AS (
+            SELECT 
+                t.id,
+                t.nombre,
+                t.capacidad_maxima,
+                t.precio_base_por_noche,
+                COUNT(h.id) as total_habitaciones
             FROM tipos_habitacion t
             LEFT JOIN habitaciones h ON t.id = h.tipo_habitacion_id AND h.activa = true
             WHERE t.activo = true
             GROUP BY t.id, t.nombre, t.capacidad_maxima, t.precio_base_por_noche
         ),
-        ocupadas AS (
-            SELECT hab.tipo_habitacion_id, COUNT(DISTINCT e.habitacion_id) as num
+        -- Estancias activas en el período
+        estancias_en_periodo AS (
+            SELECT 
+                h.tipo_habitacion_id,
+                COUNT(DISTINCT e.habitacion_id) as ocupadas
             FROM estancias e
-            JOIN habitaciones hab ON e.habitacion_id = hab.id
+            JOIN habitaciones h ON e.habitacion_id = h.id
             WHERE e.estado_estancia = 'activa'
-            AND e.fecha_checkin_esperada < %s AND e.fecha_checkout_esperada > %s
-            GROUP BY hab.tipo_habitacion_id
+            AND e.fecha_checkin_esperada < %s
+            AND e.fecha_checkout_esperada > %s
+            GROUP BY h.tipo_habitacion_id
         ),
-        reservadas AS (
-            SELECT tipo_habitacion_solicitada_id, COUNT(*)::int as num
+        -- Reservas confirmadas en el período
+        reservas_en_periodo AS (
+            SELECT 
+                tipo_habitacion_solicitada_id,
+                COUNT(*) as reservadas
             FROM reservas
             WHERE estado_reserva = 'confirmada'
-            AND fecha_checkin < %s AND fecha_checkout > %s
+            AND fecha_checkin < %s
+            AND fecha_checkout > %s
             GROUP BY tipo_habitacion_solicitada_id
         )
-        SELECT pt.id as tipo_habitacion_id, pt.nombre as tipo_habitacion, pt.capacidad_maxima,
-               pt.precio_base_por_noche, pt.total_habitaciones,
-               GREATEST(0, pt.total_habitaciones - COALESCE(o.num, 0) - COALESCE(r.num, 0)) as disponibles
-        FROM por_tipo pt
-        LEFT JOIN ocupadas o ON pt.id = o.tipo_habitacion_id
-        LEFT JOIN reservadas r ON pt.id = r.tipo_habitacion_solicitada_id
-        ORDER BY pt.precio_base_por_noche
+        SELECT 
+            t.id as tipo_habitacion_id,
+            t.nombre as tipo_habitacion,
+            t.capacidad_maxima,
+            t.precio_base_por_noche,
+            t.total_habitaciones,
+            COALESCE(e.ocupadas, 0) as ocupadas,
+            COALESCE(r.reservadas, 0) as reservadas,
+            (t.total_habitaciones - COALESCE(e.ocupadas, 0) - COALESCE(r.reservadas, 0)) as disponibles
+        FROM total_por_tipo t
+        LEFT JOIN estancias_en_periodo e ON t.id = e.tipo_habitacion_id
+        LEFT JOIN reservas_en_periodo r ON t.id = r.tipo_habitacion_solicitada_id
+        ORDER BY t.precio_base_por_noche
         """
         
         df_disponibilidad = pd.DataFrame(run_query(query, (fecha_fin, fecha_inicio, fecha_fin, fecha_inicio)))
@@ -412,7 +464,7 @@ with tab3:
             
             for _, row in df_disponibilidad.iterrows():
                 with st.container():
-                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+                    col1, col2, col3, col4, col5, col6 = st.columns([2, 1, 1, 1, 1, 1])
                     with col1:
                         st.write(f"**{row['tipo_habitacion']}**")
                     with col2:
@@ -420,15 +472,25 @@ with tab3:
                     with col3:
                         st.write(f"Precio: {formatear_moneda(row['precio_base_por_noche'])}/noche")
                     with col4:
+                        st.write(f"Total: {row['total_habitaciones']}")
+                    with col5:
                         disponibles = row['disponibles']
                         color = "green" if disponibles > 0 else "red"
-                        st.markdown(f"<span style='color:{color}'>**{disponibles} disponibles**</span>", unsafe_allow_html=True)
-                    with col5:
+                        st.markdown(f"<span style='color:{color}; font-weight:bold'>**{disponibles} disp**</span>", unsafe_allow_html=True)
+                    with col6:
                         if disponibles > 0:
-                            if st.button("Seleccionar", key=f"sel_{row['tipo_habitacion_id']}_{row['tipo_habitacion']}"):
+                            if st.button("Seleccionar", key=f"sel_{row['tipo_habitacion_id']}"):
                                 st.session_state.reserva_data['tipo_habitacion_id'] = row['tipo_habitacion_id']
                                 st.session_state.reserva_step = 1
                                 st.rerun()
                     st.markdown("---")
+                    
+                    # Mostrar detalles si hay ocupadas o reservadas
+                    if row['ocupadas'] > 0 or row['reservadas'] > 0:
+                        with st.expander(f"Ver detalles de ocupación para {row['tipo_habitacion']}"):
+                            if row['ocupadas'] > 0:
+                                st.info(f"🏨 {row['ocupadas']} habitaciones ocupadas por estancias activas")
+                            if row['reservadas'] > 0:
+                                st.warning(f"📅 {row['reservadas']} habitaciones reservadas")
         else:
             st.info("No hay habitaciones disponibles para las fechas seleccionadas")
