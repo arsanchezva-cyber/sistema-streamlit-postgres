@@ -11,6 +11,7 @@ from services.report_service import (
 )
 from utils.helpers import formatear_moneda
 
+st.set_page_config(page_title="Reportes", page_icon="📄", layout="wide")
 
 st.title("📄 Generación de Reportes")
 st.markdown("---")

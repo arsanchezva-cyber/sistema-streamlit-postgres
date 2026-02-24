@@ -7,6 +7,7 @@ st.set_page_config(
     page_title="Sistema de Gestión Hotelera",
     page_icon="🏨",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # Inicializar estado de sesión
@@ -22,11 +23,14 @@ def login():
     st.sidebar.title("🔐 Acceso al Sistema")
     username = st.sidebar.text_input("Usuario")
     password = st.sidebar.text_input("Contraseña", type="password")
-
+    
     if st.sidebar.button("Ingresar"):
+        # Autenticación básica (mejorar en producción)
         if username == "admin" and password == "admin123":
             st.session_state.authenticated = True
             st.session_state.username = username
+            st.sidebar.success("¡Login exitoso!")
+            st.rerun()
         else:
             st.sidebar.error("Credenciales incorrectas")
 
@@ -52,8 +56,27 @@ else:
     st.sidebar.title(f"👤 Bienvenido, {st.session_state.username}")
     st.sidebar.markdown("---")
     
+    PAGE_MAPPING = {
+        "Dashboard": "pages/01_Dashboard.py",
+        "Reservas": "pages/02_Reservas.py",
+        "CheckIn": "pages/03_CheckIn.py",
+        "CheckOut": "pages/04_CheckOut_Facturacion.py",
+        "Estadisticas": "pages/05_Estadisticas.py",
+        "Reportes": "pages/06_Reportes.py",
+    }
+    menu_options = {
+        "🏠 Dashboard": "Dashboard",
+        "📅 Reservas": "Reservas",
+        "✅ Check-In": "CheckIn",
+        "❌ Check-Out": "CheckOut",
+        "📊 Estadísticas": "Estadisticas",
+        "📄 Reportes": "Reportes"
+    }
     
-    
+    for menu_item, page in menu_options.items():
+        if st.sidebar.button(menu_item, use_container_width=True):
+            st.session_state.current_page = page
+            st.switch_page(PAGE_MAPPING[page])
     
     st.sidebar.markdown("---")
     
@@ -66,11 +89,13 @@ else:
     
     # Botón de logout
     if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
-    st.session_state.authenticated = False
-    st.session_state.username = None
+        st.session_state.authenticated = False
+        st.session_state.username = None
+        st.rerun()
     
     # Página principal
     st.title(f"🏨 {st.session_state.current_page}")
     st.markdown("---")
     
-  
+    if st.session_state.current_page in PAGE_MAPPING:
+        st.switch_page(PAGE_MAPPING[st.session_state.current_page])

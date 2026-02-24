@@ -1,0 +1,129 @@
+@staticmethod
+def generar_factura_pdf(estancia_id: str) -> Optional[bytes]:
+    """Genera un PDF con la factura detallada de una estancia usando BytesIO."""
+    
+    # Obtener datos de la factura
+    query_factura = """
+    SELECT 
+        f.numero_factura,
+        f.fecha_emision,
+        f.subtotal,
+        f.impuestos,
+        f.total,
+        f.metodo_pago,
+        h.nombre_completo,
+        h.tipo_documento,
+        h.numero_documento,
+        h.email,
+        hab.numero_habitacion,
+        t.nombre as tipo_habitacion,
+        e.fecha_checkin_real,
+        e.fecha_checkout_real,
+        e.fecha_checkin_esperada,
+        e.fecha_checkout_esperada
+    FROM facturas f
+    JOIN estancias e ON f.estancia_id = e.id
+    JOIN huespedes h ON f.huesped_id = h.id
+    JOIN habitaciones hab ON e.habitacion_id = hab.id
+    JOIN tipos_habitacion t ON hab.tipo_habitacion_id = t.id
+    WHERE f.estancia_id = %s
+    """
+    
+    query_detalles = """
+    SELECT 
+        descripcion,
+        cantidad,
+        precio_unitario,
+        importe_total,
+        tipo_detalle
+    FROM detalles_factura
+    WHERE factura_id = (SELECT id FROM facturas WHERE estancia_id = %s)
+    ORDER BY 
+        CASE tipo_detalle 
+            WHEN 'alojamiento' THEN 1 
+            WHEN 'consumo' THEN 2 
+        END
+    """
+    
+    factura_data = run_query(query_factura, (estancia_id,))
+    detalles_data = run_query(query_detalles, (estancia_id,))
+    
+    if not factura_data:
+        return None
+    
+    f = factura_data[0]
+    
+    # Crear PDF
+    pdf = PDFReport()
+    pdf.add_page()
+    
+    # Título
+    pdf.set_font('Arial', 'B', 20)
+    pdf.cell(0, 10, 'FACTURA', 0, 1, 'C')
+    pdf.ln(10)
+    
+    # Información de la factura
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 6, f"Factura N°: {f['numero_factura']}", 0, 1)
+    pdf.set_font('Arial', '', 11)
+    pdf.cell(0, 6, f"Fecha de Emisión: {formatear_fecha(f['fecha_emision'])}", 0, 1)
+    pdf.ln(5)
+    
+    # Información del huésped
+    pdf.set_font('Arial', 'B', 11)
+    pdf.cell(0, 6, 'Datos del Huésped:', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(0, 5, f"Nombre: {f['nombre_completo']}", 0, 1)
+    pdf.cell(0, 5, f"Documento: {f['tipo_documento']} {f['numero_documento']}", 0, 1)
+    pdf.cell(0, 5, f"Email: {f['email'] or 'No especificado'}", 0, 1)
+    pdf.ln(5)
+    
+    # Información de la estancia
+    pdf.set_font('Arial', 'B', 11)
+    pdf.cell(0, 6, 'Detalles de la Estancia:', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(0, 5, f"Habitación: {f['numero_habitacion']} - {f['tipo_habitacion']}", 0, 1)
+    pdf.cell(0, 5, f"Check-in: {formatear_fecha(f['fecha_checkin_real'])}", 0, 1)
+    pdf.cell(0, 5, f"Check-out: {formatear_fecha(f['fecha_checkout_real'] or f['fecha_checkout_esperada'])}", 0, 1)
+    pdf.ln(10)
+    
+    # Tabla de detalles
+    pdf.set_font('Arial', 'B', 10)
+    pdf.set_fill_color(200, 220, 255)
+    pdf.cell(80, 7, 'Descripción', 1, 0, 'C', 1)
+    pdf.cell(20, 7, 'Cant.', 1, 0, 'C', 1)
+    pdf.cell(40, 7, 'P. Unitario', 1, 0, 'C', 1)
+    pdf.cell(40, 7, 'Importe', 1, 1, 'C', 1)
+    
+    pdf.set_font('Arial', '', 9)
+    for detalle in detalles_data:
+        # Truncar descripción si es muy larga
+        desc = detalle['descripcion'][:40] + '...' if len(detalle['descripcion']) > 40 else detalle['descripcion']
+        
+        pdf.cell(80, 6, desc, 1)
+        pdf.cell(20, 6, str(detalle['cantidad']), 1, 0, 'C')
+        pdf.cell(40, 6, formatear_moneda(detalle['precio_unitario']), 1, 0, 'R')
+        pdf.cell(40, 6, formatear_moneda(detalle['importe_total']), 1, 1, 'R')
+    
+    # Totales
+    pdf.ln(5)
+    pdf.set_font('Arial', 'B', 11)
+    pdf.cell(140, 7, 'Subtotal:', 0, 0, 'R')
+    pdf.cell(40, 7, formatear_moneda(f['subtotal']), 0, 1, 'R')
+    pdf.cell(140, 7, 'Impuestos (16%):', 0, 0, 'R')
+    pdf.cell(40, 7, formatear_moneda(f['impuestos']), 0, 1, 'R')
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(140, 8, 'TOTAL:', 0, 0, 'R')
+    pdf.cell(40, 8, formatear_moneda(f['total']), 0, 1, 'R')
+    pdf.ln(10)
+    
+    # Método de pago
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(0, 6, f"Método de Pago: {f['metodo_pago'] or 'No especificado'}", 0, 1)
+    
+    # SOLUCIÓN: Usar BytesIO en lugar de archivo temporal
+    import io
+    pdf_bytes = io.BytesIO()
+    pdf.output(pdf_bytes)
+    pdf_bytes.seek(0)
+    return pdf_bytes.getvalue()

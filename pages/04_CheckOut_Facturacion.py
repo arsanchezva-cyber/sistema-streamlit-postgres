@@ -7,6 +7,7 @@ from services.report_service import generar_factura_pdf
 from utils.helpers import formatear_moneda
 import decimal
 
+st.set_page_config(page_title="Check-Out", page_icon="❌", layout="wide")
 
 st.title("❌ Check-Out y Facturación")
 st.markdown("---")

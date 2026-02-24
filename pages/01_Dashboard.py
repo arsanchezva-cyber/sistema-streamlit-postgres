@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, date
 from core.database import run_query
 from utils.helpers import formatear_moneda, formatear_fecha
 
+st.set_page_config(page_title="Dashboard", page_icon="🏠", layout="wide")
 
 # Título
 st.title("📊 Panel de Control - Vista General")

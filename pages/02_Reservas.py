@@ -493,3 +493,5 @@ with tab3:
                                 st.warning(f"📅 {row['reservadas']} habitaciones reservadas")
         else:
             st.info("No hay habitaciones disponibles para las fechas seleccionadas")
+
+
