@@ -22,14 +22,11 @@ def login():
     st.sidebar.title("🔐 Acceso al Sistema")
     username = st.sidebar.text_input("Usuario")
     password = st.sidebar.text_input("Contraseña", type="password")
-    
+
     if st.sidebar.button("Ingresar"):
-        # Autenticación básica (mejorar en producción)
         if username == "admin" and password == "admin123":
             st.session_state.authenticated = True
             st.session_state.username = username
-            st.sidebar.success("¡Login exitoso!")
-            st.rerun()
         else:
             st.sidebar.error("Credenciales incorrectas")
 
@@ -69,9 +66,8 @@ else:
     
     # Botón de logout
     if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.username = None
-        st.rerun()
+    st.session_state.authenticated = False
+    st.session_state.username = None
     
     # Página principal
     st.title(f"🏨 {st.session_state.current_page}")
