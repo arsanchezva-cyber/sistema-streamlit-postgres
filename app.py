@@ -7,7 +7,6 @@ st.set_page_config(
     page_title="Sistema de Gestión Hotelera",
     page_icon="🏨",
     layout="wide",
-    initial_sidebar_state="expanded"
 )
 
 # Inicializar estado de sesión

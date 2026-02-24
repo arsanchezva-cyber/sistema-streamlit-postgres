@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 from core.database import run_query, execute_transaction
 from utils.helpers import formatear_fecha
 
-st.set_page_config(page_title="Check-In", page_icon="✅", layout="wide")
+
 
 st.title("✅ Proceso de Check-In")
 st.markdown("---")

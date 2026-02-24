@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, date
 from core.database import run_query
 from utils.helpers import formatear_moneda
 
-st.set_page_config(page_title="Estadísticas", page_icon="📊", layout="wide")
 
 st.title("📊 Estadísticas y Análisis")
 st.markdown("---")

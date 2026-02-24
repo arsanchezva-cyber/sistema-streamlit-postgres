@@ -7,7 +7,6 @@ from utils.helpers import formatear_moneda, validar_fechas
 from utils.validators import validar_email, validar_telefono
 import uuid
 
-st.set_page_config(page_title="Reservas", page_icon="📅", layout="wide")
 
 st.title("📅 Gestión de Reservas")
 st.markdown("---")
